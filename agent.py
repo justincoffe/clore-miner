@@ -3,7 +3,8 @@
 state + a small control API over HTTP -- the engine talks to this instead of HiveOS.
 
 Config: /root/miner.json (kept across container restarts, so a coin switched mid-rental survives one); first start
-takes it from env: COIN (QTC|PRL), MINER (peakminer|srbminer), POOLS (host:port[,host:port]), WALLET, WORKER,
+takes it from env: COIN (QTC|PRL), MINER (peakminer|srbminer), POOLS ("host:port host:port" -- SPACES: Clore refuses
+',' '!' '|' ';' in env values, 10-07), WALLET, WORKER,
 DEVICES (CUDA indices to use, e.g. "2,3" -- hides broken GPUs), EXTRA (extra miner args).  TOKEN: bearer token for
 every endpoint but /health.  Stdlib only.
 
@@ -26,7 +27,7 @@ import time
 import urllib.request
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 CONF = os.environ.get("AGENT_CONF", "/root/miner.json")
 LOG = os.environ.get("AGENT_LOG", "/var/log/miner/miner.log")
 PORT = int(os.environ.get("AGENT_PORT", "8080"))
@@ -54,7 +55,7 @@ def validate(c: dict) -> dict:
     if (c["miner"], c["coin"]) not in ALGO:
         raise ValueError(f"unsupported miner/coin {c['miner']}/{c['coin']} (have {sorted(ALGO)})")
     pools = c.get("pools")
-    pools = [p.strip() for p in (pools.split(",") if isinstance(pools, str) else pools or []) if p.strip()]
+    pools = [p for p in (re.split(r"[\s,]+", pools.strip()) if isinstance(pools, str) else pools or []) if p]
     if not 1 <= len(pools) <= 3 or not all(RE["pool"].match(p) for p in pools):
         raise ValueError("pools: 1-3 entries host:port")
     c["pools"] = pools
@@ -107,13 +108,16 @@ class Supervisor(threading.Thread):
     """Starts the miner, restarts it when it exits (5 s backoff, doubling to 60 s while it keeps dying within 2 min of
     its start), rotates its log. restart() = stop the current run; the loop starts the (new) config."""
 
-    def __init__(self, conf: dict):
+    def __init__(self, conf: dict, error: str = None):
         super().__init__(daemon=True)
         self.conf, self.proc, self.started, self.restarts, self.fails = conf, None, 0.0, 0, 0
-        self.last_exit, self.last_cmd, self._kick = None, [], threading.Event()
+        self.last_exit, self.last_cmd, self._kick, self.error = None, [], threading.Event(), error
 
     def run(self):
         while True:
+            while self.conf is None:          # no valid config yet (bad env): wait for POST /config
+                self._kick.wait(5)
+                self._kick.clear()
             c = self.conf
             env = dict(os.environ)
             if c["devices"]:
@@ -167,7 +171,7 @@ class Supervisor(threading.Thread):
 
     def restart(self, conf: dict = None):
         if conf:
-            self.conf = conf
+            self.conf, self.error = conf, None
         self._kick.set()
 
     def state(self) -> dict:
@@ -294,13 +298,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         if u.path == "/health":
-            return self._send(200, {"ok": True, "version": VERSION, "rev": SUP.conf["rev"]})
+            return self._send(200, {"ok": SUP.conf is not None, "version": VERSION,
+                                    "rev": (SUP.conf or {}).get("rev", 0), "error": SUP.error})
         if not self._authed():
             return
         if u.path == "/status":
             c = SUP.conf
-            return self._send(200, {"version": VERSION, "t": time.time(), "conf": c, "miner": SUP.state(),
-                                    "stats": miner_stats(c), "gpus": gpu_info()})
+            return self._send(200, {"version": VERSION, "t": time.time(), "conf": c, "error": SUP.error,
+                                    "miner": SUP.state(), "stats": miner_stats(c) if c else {"error": SUP.error},
+                                    "gpus": gpu_info()})
         if u.path == "/log":
             n = int((parse_qs(u.query).get("n") or ["200"])[0])
             return self._send(200, {"lines": tail(min(max(n, 1), 2000))})
@@ -316,16 +322,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(400, {"error": "bad json"})
         if u.path == "/restart":
             SUP.restart()
-            return self._send(200, {"ok": True, "rev": SUP.conf["rev"]})
+            return self._send(200, {"ok": True, "rev": (SUP.conf or {}).get("rev", 0)})
         if u.path == "/config":
             with _LOCK:
-                new = {**SUP.conf, **{k: v for k, v in body.items()
+                new = {**(SUP.conf or {}), **{k: v for k, v in body.items()
                                       if k in ("coin", "miner", "pools", "wallet", "worker", "devices", "extra")}}
                 try:
                     new = validate(new)
                 except ValueError as e:
                     return self._send(400, {"error": str(e)})
-                new["rev"] = SUP.conf["rev"] + 1
+                new["rev"] = (SUP.conf or {}).get("rev", 0) + 1
                 save_conf(new)
                 SUP.restart(new)
             return self._send(200, {"ok": True, "rev": new["rev"], "conf": new})
@@ -334,9 +340,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 def main():
     global SUP
-    conf = load_conf()
-    save_conf(conf)
-    SUP = Supervisor(conf)
+    try:
+        conf, err = load_conf(), None
+        save_conf(conf)
+    except ValueError as e:                   # bad env: stay up, report it, wait for POST /config
+        conf, err = None, f"config: {e}"
+    SUP = Supervisor(conf, err)
     SUP.start()
     http.server.ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 

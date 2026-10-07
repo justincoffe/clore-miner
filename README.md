@@ -12,7 +12,7 @@ Image: `alleserojje/clore-miner:<version>` on Docker Hub (Clore's API only takes
 |---|---|---|
 | `COIN` | `QTC` / `PRL` | |
 | `MINER` | `srbminer` / `peakminer` | srbminer: QTC only |
-| `POOLS` | `qtc-ru.kryptex.network:7049,qtc-eu.kryptex.network:7049` | first = primary, rest = failover |
+| `POOLS` | `qtc-ru.kryptex.network:7049 qtc-eu.kryptex.network:7049` | **space**-separated (Clore refuses `,` `!` `;` and pipes in env); first = primary |
 | `WALLET` | address | |
 | `WORKER` | `RIG31` | |
 | `DEVICES` | `2,3` | optional: CUDA indices to use (hides broken GPUs) |
@@ -30,4 +30,5 @@ Ports: `22` (ssh), `8080` (agent).
 - `POST /config` `{"coin": "PRL", "miner": "peakminer", "pools": ["prl-ru.kryptex.network:7048"]}` -> saved, miner restarted
 - `POST /restart`
 
-The config is kept in `/root/miner.json`, so a container restart keeps the last `/config`.
+The config is kept in `/root/miner.json`, so a container restart keeps the last `/config`. A bad env doesn't stop the
+agent: `/health` and `/status` report the error and a `POST /config` fixes it.
