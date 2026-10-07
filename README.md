@@ -4,7 +4,8 @@ Docker image for mining on [clore.ai](https://clore.ai) rentals without HiveOS: 
 **SRBMiner-Multi 3.7.2** (QTC), plus a small control agent (`agent.py`, Python stdlib) that runs the miner, restarts it
 when it dies, and serves its state over HTTP on port 8080.
 
-Image: `ghcr.io/justincoffe/clore-miner:<version>` (built by `.github/workflows/build.yml`).
+Image: `alleserojje/clore-miner:<version>` on Docker Hub (Clore's API only takes Docker Hub images), also
+`ghcr.io/justincoffe/clore-miner:<version>`; built by `.github/workflows/build.yml`.
 
 ## Order env
 | var | example | |
