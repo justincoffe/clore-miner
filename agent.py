@@ -27,7 +27,7 @@ import time
 import urllib.request
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 CONF = os.environ.get("AGENT_CONF", "/root/miner.json")
 LOG = os.environ.get("AGENT_LOG", "/var/log/miner/miner.log")
 PORT = int(os.environ.get("AGENT_PORT", "8080"))

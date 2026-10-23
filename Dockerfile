@@ -11,22 +11,22 @@ RUN apt-get update \
  && mkdir -p /run/sshd /opt/miners/srbminer /var/log/miner \
  && sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/; s/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
 
-# miners: pinned versions, checked against the sha256 GitHub publishes for each release asset
-ARG PEAK_VER=2.18.0
-ARG PEAK_SHA=b54167043cf08ef6c0c9546eb037dc94f802264d02920ec4b9f6d7dbae20a717
+# miners: pinned versions, checked against the sha256 GitHub publishes for each release asset. Pedro 10-23: the HiveOS
+# packages he runs (srbminer_custom 3.8.0, peakminer 2.20.0) -- the binaries go where the agent / Vast engine expect them
+ARG PEAK_VER=2.20.0
+ARG PEAK_SHA=8b13bcf5038a7e694d0e5d91b5c358c49d6e80dc4219624a069104f8b321084e
 ARG SRB_VER=3.8.0
-ARG SRB_DASH=3-8-0
-ARG SRB_SHA=095c3f75905ee023e8ed85ac905afefc92825cce83a528fa955cf1db456d3dd8
-RUN curl -fsSL -o /opt/miners/peakminer \
-      "https://github.com/peakminer/peakminer/releases/download/v${PEAK_VER}/peakminer-${PEAK_VER}-linux-x86_64" \
- && echo "${PEAK_SHA}  /opt/miners/peakminer" | sha256sum -c - \
- && chmod +x /opt/miners/peakminer \
- && curl -fsSL -o /tmp/srb.tgz \
-      "https://github.com/doktor83/SRBMiner-Multi/releases/download/${SRB_VER}/SRBMiner-Multi-${SRB_DASH}-Linux.tar.gz" \
+ARG SRB_SHA=1207a4e2ae0397948d7154c6e2edf7d1ca18211dce6ad3406799bbc95d664bb7
+RUN curl -fsSL -o /tmp/peak.tgz "https://github.com/peakminer/peakminer/releases/download/v${PEAK_VER}/peakminer-${PEAK_VER}.tar.gz" \
+ && echo "${PEAK_SHA}  /tmp/peak.tgz" | sha256sum -c - \
+ && tar -xzf /tmp/peak.tgz -C /tmp \
+ && install -m 755 /tmp/peakminer/peakminer /opt/miners/peakminer \
+ && curl -fsSL -o /tmp/srb.tgz "https://github.com/doktor83/SRBMiner-Multi/releases/download/${SRB_VER}/srbminer_custom-${SRB_VER}.tar.gz" \
  && echo "${SRB_SHA}  /tmp/srb.tgz" | sha256sum -c - \
- && tar -xzf /tmp/srb.tgz -C /opt/miners/srbminer --strip-components=1 \
- && rm /tmp/srb.tgz \
- && chmod +x /opt/miners/srbminer/SRBMiner-MULTI
+ && tar -xzf /tmp/srb.tgz -C /tmp \
+ && install -m 755 /tmp/srbminer_custom/srbminer_custom_bin /opt/miners/srbminer/SRBMiner-MULTI \
+ && rm -rf /tmp/peak.tgz /tmp/peakminer /tmp/srb.tgz /tmp/srbminer_custom \
+ && test -x /opt/miners/peakminer && test -x /opt/miners/srbminer/SRBMiner-MULTI
 
 COPY agent.py start.sh /opt/clore-miner/
 RUN chmod +x /opt/clore-miner/start.sh /opt/clore-miner/agent.py
